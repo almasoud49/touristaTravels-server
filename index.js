@@ -47,6 +47,7 @@ const touristaTravels = async () => {
     const database = client.db("touristaTravels");
     const serviceCollection = database.collection("services");
     const reviewCollection = database.collection("reviews");
+    const testimonialCollection = database.collection('testimonials');
     const userCollection = database.collection("users");
 
     //JWT create
@@ -88,8 +89,7 @@ const touristaTravels = async () => {
 				.toArray();
 			res.send({ count, result });
 		}
-    //   const result = await serviceCollection.find().toArray();
-    //   res.send(result);
+    
     });
 
     //Get User Created Service
@@ -223,12 +223,28 @@ const touristaTravels = async () => {
 		const result = await reviewCollection.find(query).sort({createAt: -1}).limit(4).toArray();
 		res.send(result);
 	});
+
 	//Get all user
 	app.get('/users', async (req, res) => {
 		const query = {};
 		const result = await userCollection.find(query).toArray();
 		res.send(result);
 	});
+
+  //Add New User To Database
+	app.post('/users', async (req, res) => {
+		const user = req.body;
+		const option = { upsert: true };
+		const query = { userId: user.userId };
+		const userInDb = await userCollection.findOne(query);
+		if (userInDb?.userId) {
+			return;
+		}
+		const result = await userCollection.insertOne(user, option);
+		res.send(result);
+	});
+
+
 
   } finally {
   }
