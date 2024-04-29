@@ -23,7 +23,7 @@ const client = new MongoClient(uri, {
 
 //Verify JWT Token
 
-const verifyToken = (req, res, next) => {
+const verifyJwtToken = (req, res, next) => {
   const authToken = req.headers?.authorization;
   if (!authToken) {
     return res
@@ -59,7 +59,7 @@ const touristaTravels = async () => {
     });
 
     //verify jwt token
-    app.post("/login", verifyToken, async (req, res) => {
+    app.post("/login", verifyJwtToken, async (req, res) => {
       const user = req.body;
       const result = await userCollection.insertOne(user);
       res.send(result);
@@ -67,13 +67,56 @@ const touristaTravels = async () => {
 
     //Get all  Services
     app.get("/services", async (req, res) => {
-      const result = await serviceCollection.find().toArray();
-      res.send(result);
+        const limit = parseInt(req.query.limit);
+		const page = parseInt(req.query.page);
+		const size = parseInt(req.query.size);
+		const query = {};
+        const count = await serviceCollection.estimatedDocumentCount();
+		if (limit) {
+			const services = await serviceCollection
+				.find(query)
+				.sort({ createAt: -1 })
+				.limit(limit)
+				.toArray();
+			res.send(services);
+		}else {
+			const result = await serviceCollection
+				.find(query)
+				.sort({ createAt: -1 })
+				.skip(page * size)
+				.limit(size)
+				.toArray();
+			res.send({ count, result });
+		}
+    //   const result = await serviceCollection.find().toArray();
+    //   res.send(result);
     });
 
+    //Get User Created Service
+
+    app.get('/my-service',verifyJwtToken, async(req,res)=>{
+        const decoded = req.decoded;
+		const userId = req.query.userId;
+		const query = { createBy: userId };
+		if (decoded.userId !== userId) {
+			return res.status(403).send({ message: 'Access Forbidden' });
+		}
+        const result = await serviceCollection
+			.find(query)
+			.sort({ createAt: -1 })
+			.toArray();
+		const count = await serviceCollection.countDocuments(query);
+		res.send({ count, result });
+    })
+
     //Create a service
-    app.post("/services", async (req, res) => {
+    app.post("/services", verifyJwtToken,async (req, res) => {
+        const decoded = req.decoded;
       const service = req.body;
+      const userId= req.query.userId;
+      if (decoded.userId !== userId) {
+        return res.status(403).send({ message: 'Access Forbidden' });
+    }
       const result = await serviceCollection.insertOne(service);
       res.send(result);
     });
@@ -86,44 +129,107 @@ const touristaTravels = async () => {
     });
 
     //Post a review
-    app.post("/review", async (req, res) => {
-      const review = req.body;
+    app.post("/review",verifyJwtToken, async (req, res) => {
+        const decoded = req.decoded;
+        const review = req.body;
+        const userId = req.query.userId;
+		if (decoded.userId !== userId) {
+			return res.status(403).send({ message: 'Access Forbidden' });
+		}
       const result = await reviewCollection.insertOne(review);
       res.send(result);
     });
 
     //Get all review
     app.get("/reviews", async (req, res) => {
-      const result = await reviewCollection.find().toArray();
+        const service_id = req.query.service_id;
+		const page = parseInt(req.query.page);
+		const size = parseInt(req.query.size);
+		const query = { service_id: service_id };
+      const result = await reviewCollection.find(query)
+      .sort({ createAt: -1 })
+      .skip(page * size)
+      .limit(size)
+      .toArray();
       res.send(result);
+      const reviewsRating = await reviewCollection.find(query).toArray();
+		const count = await reviewCollection.countDocuments(query);
+		const sum = reviewsRating.reduce(
+			(pre, cur) => pre + cur.user_rating,
+			0
+		);
+		let average = 0;
+		if (!isNaN(sum / count)) {
+			average = sum / count;
+		}
+		res.send({ count, reviews, average });
     });
 
     //Get Single review
-    app.get("/my-review/:id", async (req, res) => {
-      const id = req.params._id;
-      const result = await reviewCollection.findOne(id);
-      res.send(result);
+    app.get("/my-review",verifyJwtToken, async (req, res) => {
+        const decoded = req.decoded;
+		const userId = req.query.userId;
+		const query = { user_userId: userId };
+		if (decoded.userId !== userId) {
+			return res.status(403).send({ message: 'Access Forbidden' });
+		} else {
+			const result = await reviewCollection
+				.find(query)
+				.sort({ createAt: -1 })
+				.toArray();
+			const count = await reviewCollection.countDocuments(query);
+			res.send({ count, result });
+		}
     });
 
     //Update review item
-    app.patch("/my-review/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const reviewData = req.body;
-      const updatedReview = {
-        $set: reviewData,
-      };
-      const result = await reviewCollection.updateOne(filter, updatedReview);
-      res.send(result);
+    app.patch("/my-review/:id",verifyJwtToken , async (req, res) => {
+        const decoded = req.decoded;
+		const id = req.query.id;
+		const userId = req.query.userId;
+		const review = req.body;
+		const filter = { _id:new ObjectId(id) };
+		const updatedReview = {
+			$set: review,
+		};
+		if (decoded.userId !== userId) {
+			return res.status(403).send({ message: 'Access Forbidden' });
+		} else {
+			const result = await reviewCollection.updateOne(
+				filter,
+				updatedReview
+			);
+			res.send(result);
+		}
     });
 
     //Delete a single review
-    app.delete("/my-review/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const result = await reviewCollection.deleteOne(filter);
-      res.send(result);
+    app.delete("/my-review" ,verifyJwtToken, async (req, res) => {
+        const decoded = req.decoded;
+		const id = req.query.id;
+		const userId = req.query.userId;
+		const query = { _id: new ObjectId(id)};
+		if (decoded.userId !== userId) {
+			return res.status(403).send({ message: 'Access Forbidden' });
+		} else {
+			const result = await reviewCollection.deleteOne(query);
+			res.send(result);
+		}
     });
+
+    //Get all Testimonial
+	app.get('/testimonials', async (req, res) => {
+		const query = {};
+		const result = await reviewCollection.find(query).sort({createAt: -1}).limit(4).toArray();
+		res.send(result);
+	});
+	//Get all user
+	app.get('/users', async (req, res) => {
+		const query = {};
+		const result = await userCollection.find(query).toArray();
+		res.send(result);
+	});
+
   } finally {
   }
 };
